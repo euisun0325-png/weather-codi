@@ -16,6 +16,16 @@ android {
         versionName = "0.3.0"
     }
 
+    // 빌드할 때마다 같은 서명을 써야 새 버전을 덮어 설치할 수 있음
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("codi-debug.jks")
+            storePassword = "codi1234"
+            keyAlias = "codi"
+            keyPassword = "codi1234"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
