@@ -74,11 +74,13 @@ fun SettingsScreen(modifier: Modifier, repo: Repository) {
     }
 
     Column(
-        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Section("🔔 알림 시간") {
-            Text("전날 밤 이 시간에 내일 코디를 알려드려요", fontSize = 14.sp)
+        ScreenHeader("설정")
+        Section("알림 시간") {
+            Text("전날 밤 이 시간에 내일 코디를 알려드려요", style = MaterialTheme.typography.bodyMedium, color = Codi.Sub)
+            Spacer(Modifier.height(4.dp))
             BigChoices(
                 options = listOf("저녁 7시" to 19, "8시" to 20, "9시" to 21, "10시" to 22),
                 selected = hour,
@@ -91,20 +93,17 @@ fun SettingsScreen(modifier: Modifier, repo: Repository) {
             )
         }
 
-        Section("📍 내 동네") {
+        Section("내 동네") {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(locName, Modifier.weight(1f), fontSize = 16.sp)
-                Button(onClick = { locPermission.launch(Manifest.permission.ACCESS_COARSE_LOCATION) }) {
-                    Text("현재 위치로")
-                }
+                Text("📍 $locName", Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+                SegmentPill("현재 위치로", false) { locPermission.launch(Manifest.permission.ACCESS_COARSE_LOCATION) }
             }
         }
 
-        Section("🧍 내 전신사진 (선택)") {
+        Section("내 전신사진 (선택)") {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
-                    Modifier.size(70.dp, 100.dp).clip(RoundedCornerShape(10.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                    Modifier.size(72.dp, 100.dp).clip(Codi.TileShape).background(Codi.Field),
                     contentAlignment = Alignment.Center,
                 ) {
                     val p = body
@@ -114,10 +113,10 @@ fun SettingsScreen(modifier: Modifier, repo: Repository) {
                 }
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("AI가 나에게 어울리는 코디를 고를 때 참고해요", fontSize = 13.sp)
-                    OutlinedButton(onClick = {
+                    Text("AI가 나에게 어울리는 코디를 고를 때 참고해요", style = MaterialTheme.typography.bodyMedium, color = Codi.Sub)
+                    SegmentPill(if (body == null) "사진 등록" else "바꾸기", false) {
                         bodyPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                    }) { Text(if (body == null) "사진 등록" else "바꾸기") }
+                    }
                 }
             }
         }
@@ -125,7 +124,7 @@ fun SettingsScreen(modifier: Modifier, repo: Repository) {
         msg?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
 
         TextButton(onClick = { showAdvanced = !showAdvanced }) {
-            Text(if (showAdvanced) "▲ 고급 설정 접기" else "▼ 고급 설정 (AI 키·테스트)")
+            Text(if (showAdvanced) "고급 설정 접기  ▲" else "고급 설정 (AI 키·테스트)  ▼", color = Codi.Sub)
         }
         if (showAdvanced) {
             Section("AI 키 (넣으면 더 똑똑해져요)") {
@@ -133,11 +132,11 @@ fun SettingsScreen(modifier: Modifier, repo: Repository) {
                     fontSize = 13.sp)
                 OutlinedTextField(gemini, { gemini = it }, label = { Text("Gemini API 키") },
                     singleLine = true, visualTransformation = PasswordVisualTransformation(),
-                    modifier = Modifier.fillMaxWidth())
+                    shape = FieldShape, colors = codiFieldColors(), modifier = Modifier.fillMaxWidth())
                 LinkText(ctx, "→ 무료 키 받기 (aistudio.google.com)", "https://aistudio.google.com/apikey")
                 OutlinedTextField(kma, { kma = it }, label = { Text("기상청 키 (없어도 됨)") },
                     singleLine = true, visualTransformation = PasswordVisualTransformation(),
-                    modifier = Modifier.fillMaxWidth())
+                    shape = FieldShape, colors = codiFieldColors(), modifier = Modifier.fillMaxWidth())
                 Button(onClick = {
                     repo.geminiKey = gemini; repo.kmaKey = kma; msg = "키를 저장했어요"
                 }) { Text("키 저장") }
@@ -157,7 +156,7 @@ fun SettingsScreen(modifier: Modifier, repo: Repository) {
                 }) { Text("지금 알림 미리 받아보기") }
             }
         }
-        Text("날씨코디 v0.3 · made by woongpapa", fontSize = 12.sp, color = MaterialTheme.colorScheme.outline)
+        Text("날씨코디 v0.4 · made by woongpapa", fontSize = 12.sp, color = MaterialTheme.colorScheme.outline)
     }
 }
 
@@ -179,11 +178,10 @@ fun setCurrentLocation(
 
 @Composable
 private fun Section(title: String, content: @Composable ColumnScope.() -> Unit) {
-    Card {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(title, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            content()
-        }
+    SoftCard(Modifier.fillMaxWidth()) {
+        Text(title, style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(10.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
     }
 }
 

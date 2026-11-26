@@ -6,34 +6,37 @@ import android.Manifest
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 import androidx.work.ExistingWorkPolicy
 import com.woongpapa.weathercodi.data.ClothingItem
 import com.woongpapa.weathercodi.data.Repository
 import com.woongpapa.weathercodi.work.Scheduler
 
 class MainActivity : ComponentActivity() {
-    private val notifPermission =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
-
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.light(android.graphics.Color.WHITE, android.graphics.Color.WHITE),
+        )
         super.onCreate(savedInstanceState)
-        if (Build.VERSION.SDK_INT >= 33) notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         Scheduler.scheduleNext(this, ExistingWorkPolicy.KEEP)
 
         val repo = Repository(this)
-        setContent {
-            MaterialTheme(colorScheme = lightColorScheme(primary = Color(0xFF3B6FE0), secondary = Color(0xFFFF8A3D))) {
-                App(repo)
-            }
-        }
+        setContent { CodiTheme { App(repo) } }
     }
 }
 
@@ -62,24 +65,30 @@ fun App(repo: Repository) {
     }
 
     Scaffold(
-        topBar = {
-            TopAppBar(title = { Text(listOf("내일 뭐 입지?", "내 옷장", "설정")[tab]) })
-        },
+        containerColor = Codi.Bg,
         bottomBar = {
-            NavigationBar {
-                listOf("👕" to "내일 코디", "🗄️" to "옷장", "⚙️" to "설정").forEachIndexed { i, (icon, label) ->
-                    NavigationBarItem(
-                        selected = tab == i,
-                        onClick = { tab = i; refresh() },
-                        icon = { Text(icon) },
-                        label = { Text(label) },
-                    )
-                }
+            NavigationBar(containerColor = Color.White, tonalElevation = 0.dp) {
+                val itemColors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = Codi.Ink, selectedTextColor = Codi.Ink,
+                    unselectedIconColor = Codi.Sub, unselectedTextColor = Codi.Sub,
+                    indicatorColor = Codi.Field,
+                )
+                NavigationBarItem(tab == 0, { tab = 0; refresh() },
+                    icon = { Icon(Icons.Rounded.Home, null) }, label = { Text("내일 코디") }, colors = itemColors)
+                NavigationBarItem(tab == 1, { tab = 1; refresh() },
+                    icon = { Icon(HangerIcon, null) }, label = { Text("옷장") }, colors = itemColors)
+                NavigationBarItem(tab == 2, { tab = 2; refresh() },
+                    icon = { Icon(Icons.Rounded.Settings, null) }, label = { Text("설정") }, colors = itemColors)
             }
         },
         floatingActionButton = {
             if (tab == 1) {
-                ExtendedFloatingActionButton(onClick = { editing = ClothingItem() }) { Text("＋ 옷 추가") }
+                ExtendedFloatingActionButton(
+                    onClick = { editing = ClothingItem() },
+                    containerColor = Codi.Ink, contentColor = Color.White,
+                    shape = RoundedCornerShape(18.dp),
+                    elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp, 0.dp, 0.dp),
+                ) { Text("＋  옷 추가") }
             }
         },
     ) { pad ->
