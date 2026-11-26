@@ -86,7 +86,7 @@ fun App(repo: Repository) {
         val m = Modifier.padding(pad)
         when (tab) {
             0 -> HomeScreen(m, repo, wardrobe, rec, onRecChange = { rec = it }, onRefresh = { refresh() },
-                onGoWardrobe = { tab = 1 })
+                onAddItem = { editing = ClothingItem() })
             1 -> WardrobeScreen(m, wardrobe, onClick = { editing = it })
             else -> SettingsScreen(m, repo)
         }

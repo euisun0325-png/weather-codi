@@ -38,7 +38,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import kotlin.math.roundToInt
 
 @Composable
 fun WardrobeScreen(modifier: Modifier, wardrobe: List<ClothingItem>, onClick: (ClothingItem) -> Unit) {
@@ -119,13 +118,14 @@ fun EditItemScreen(initial: ClothingItem, repo: Repository, isNew: Boolean, onDo
     var category by remember { mutableStateOf(initial.category) }
     var name by remember { mutableStateOf(initial.name) }
     var color by remember { mutableStateOf(initial.color) }
-    var warmth by remember { mutableFloatStateOf(initial.warmth.toFloat()) }
-    var formality by remember { mutableFloatStateOf(initial.formality.toFloat()) }
+    var warmth by remember { mutableIntStateOf(initial.warmth) }
+    var formality by remember { mutableIntStateOf(initial.formality) }
     var waterproof by remember { mutableStateOf(initial.waterproof) }
     var location by remember { mutableStateOf(initial.location) }
     var stored by remember { mutableStateOf(initial.stored) }
+    var showMore by remember { mutableStateOf(false) }
     val knownPlaces = remember {
-        (repo.knownLocations() + listOf("안방 장롱", "옷방 행거", "서랍장", "신발장", "리빙박스", "베란다 수납장")).distinct()
+        (repo.knownLocations() + listOf("장롱", "서랍장", "행거", "신발장", "리빙박스")).distinct().take(8)
     }
     var tagging by remember { mutableStateOf(false) }
     var msg by remember { mutableStateOf<String?>(null) }
@@ -133,19 +133,16 @@ fun EditItemScreen(initial: ClothingItem, repo: Repository, isNew: Boolean, onDo
 
     fun autoTag(path: String) {
         val key = repo.geminiKey
-        if (key.isBlank()) {
-            msg = "설정에서 Gemini API 키를 넣으면 사진만 찍어도 자동으로 채워져요."
-            return
-        }
+        if (key.isBlank()) return // AI 없으면 아래 버튼으로 직접 고르기
         tagging = true; msg = null
         scope.launch {
             try {
                 val t = withContext(Dispatchers.IO) { GeminiClient(key).tagClothing(path) }
                 category = t.category; name = t.name; color = t.color
-                warmth = t.warmth.toFloat(); formality = t.formality.toFloat(); waterproof = t.waterproof
-                msg = "AI가 채웠어요. 틀린 부분만 고쳐주세요."
+                warmth = t.warmth; formality = t.formality; waterproof = t.waterproof
+                msg = "✨ AI가 골라뒀어요. 맞으면 저장만 누르세요."
             } catch (e: Exception) {
-                msg = "자동 태그 실패: ${e.message?.take(80)}"
+                msg = null
             }
             tagging = false
         }
@@ -164,96 +161,105 @@ fun EditItemScreen(initial: ClothingItem, repo: Repository, isNew: Boolean, onDo
         if (ok) onPhoto(cameraUri)
     }
 
-    Scaffold(topBar = {
-        TopAppBar(
-            title = { Text(if (isNew) "옷 추가" else "옷 수정") },
-            navigationIcon = { TextButton(onClick = onDone) { Text("취소") } },
+    fun save() {
+        val item = initial.copy(
+            category = category, name = name.trim(), color = color.trim(),
+            warmth = warmth, formality = formality, waterproof = waterproof,
+            photoPath = photo, location = location.trim(), stored = stored,
         )
-    }) { pad ->
+        scope.launch {
+            withContext(Dispatchers.IO) { repo.upsert(item) }
+            onDone()
+        }
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(if (isNew) "옷 추가" else "옷 수정") },
+                navigationIcon = { TextButton(onClick = onDone) { Text("닫기") } },
+            )
+        },
+        bottomBar = {
+            Button(
+                onClick = { save() },
+                enabled = !tagging && photo != null,
+                modifier = Modifier.fillMaxWidth().padding(16.dp).height(56.dp),
+            ) { Text(if (photo == null) "먼저 사진을 찍어주세요" else "저장", fontSize = 17.sp) }
+        },
+    ) { pad ->
         Column(
-            Modifier.padding(pad).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            Modifier.padding(pad).fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
+            // 1. 사진
             Box(
-                Modifier.fillMaxWidth().aspectRatio(1.2f).clip(RoundedCornerShape(14.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                Modifier.fillMaxWidth().aspectRatio(1.3f).clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .clickable { val u = newCameraUri(ctx); cameraUri = u; camera.launch(u) },
                 contentAlignment = Alignment.Center,
             ) {
                 val p = photo
-                if (p != null) AsyncImage(model = File(p), contentDescription = null,
-                    contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                else Text("📷 사진을 추가하세요", color = MaterialTheme.colorScheme.outline)
+                if (p != null) {
+                    AsyncImage(model = File(p), contentDescription = null,
+                        contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                } else {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("📷", fontSize = 48.sp)
+                        Text("눌러서 옷 사진 찍기", fontSize = 16.sp)
+                    }
+                }
                 if (tagging) CircularProgressIndicator()
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = {
-                    val uri = newCameraUri(ctx); cameraUri = uri; camera.launch(uri)
-                }, modifier = Modifier.weight(1f)) { Text("카메라") }
-                OutlinedButton(onClick = {
-                    gallery.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                }, modifier = Modifier.weight(1f)) { Text("갤러리") }
-            }
-            msg?.let { Text(it, fontSize = 13.sp, color = MaterialTheme.colorScheme.primary) }
+            TextButton(onClick = {
+                gallery.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            }) { Text("또는 갤러리에서 고르기") }
+            msg?.let { Text(it, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary) }
 
-            Text("종류", fontWeight = FontWeight.Bold)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Category.entries.forEach { c ->
-                    FilterChip(selected = category == c, onClick = { category = c }, label = { Text(c.label) })
+            // 2. 종류
+            Question("어떤 옷이에요?")
+            BigChoices(
+                options = listOf("👕 상의" to Category.TOP, "👖 하의" to Category.BOTTOM,
+                    "🧥 아우터" to Category.OUTER, "👟 신발" to Category.SHOES),
+                selected = category, onSelect = { category = it },
+            )
+
+            // 3. 두께
+            Question("두께는요?")
+            val thickness = listOf("얇음" to 1, "보통" to 3, "두꺼움" to 4, "패딩·기모" to 5)
+            val nearest = thickness.minBy { kotlin.math.abs(it.second - warmth) }.second
+            BigChoices(options = thickness, selected = nearest, onSelect = { warmth = it })
+
+            // 4. 보관 위치
+            Question("어디에 넣어둬요? (선택)")
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                knownPlaces.forEach { pl ->
+                    FilterChip(selected = location == pl, onClick = { location = if (location == pl) "" else pl },
+                        label = { Text(pl) })
                 }
             }
-            OutlinedTextField(name, { name = it }, label = { Text("이름 (예: 니트, 슬랙스, 롱패딩)") },
-                singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(color, { color = it }, label = { Text("색상 (예: 네이비)") },
+            OutlinedTextField(location, { location = it }, placeholder = { Text("직접 입력 (예: 안방 장롱 2칸)") },
                 singleLine = true, modifier = Modifier.fillMaxWidth())
 
-            val w = warmth.roundToInt()
-            Text("두께: $w — " + listOf("", "아주 얇음(반팔·린넨)", "얇음(셔츠·긴팔)", "보통(맨투맨·니트)", "두꺼움(코트·두꺼운 니트)", "아주 두꺼움(패딩·기모)")[w],
-                fontWeight = FontWeight.Bold)
-            Slider(warmth, { warmth = it }, valueRange = 1f..5f, steps = 3)
-
-            val fm = formality.roundToInt()
-            Text("격식: " + listOf("", "캐주얼", "세미정장", "정장")[fm], fontWeight = FontWeight.Bold)
-            Slider(formality, { formality = it }, valueRange = 1f..3f, steps = 1)
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("방수 (비 오는 날 우선 추천)", Modifier.weight(1f))
-                Switch(waterproof, { waterproof = it })
+            // 5. 더 자세히 (접어둠)
+            TextButton(onClick = { showMore = !showMore }) {
+                Text(if (showMore) "▲ 자세히 접기" else "▼ 더 자세히 (이름·색·격식·방수)")
             }
-
-            Text("보관 위치", fontWeight = FontWeight.Bold)
-            OutlinedTextField(location, { location = it },
-                label = { Text("예: 안방 장롱 2칸, 옷방 서랍 3단") },
-                singleLine = true, modifier = Modifier.fillMaxWidth())
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                knownPlaces.forEach { p ->
-                    AssistChip(onClick = { location = p }, label = { Text(p) })
+            if (showMore) {
+                OutlinedTextField(name, { name = it }, label = { Text("이름 (예: 니트, 슬랙스)") },
+                    singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(color, { color = it }, label = { Text("색 (예: 네이비)") },
+                    singleLine = true, modifier = Modifier.fillMaxWidth())
+                Text("격식", fontWeight = FontWeight.Bold)
+                BigChoices(options = listOf("캐주얼" to 1, "세미정장" to 2, "정장" to 3),
+                    selected = formality, onSelect = { formality = it })
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("방수 (비 오는 날 추천)", Modifier.weight(1f)); Switch(waterproof, { waterproof = it })
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("📦 계절 보관 중 (추천되면 꺼내라고 알려줌)", Modifier.weight(1f)); Switch(stored, { stored = it })
                 }
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("계절 보관 중 📦")
-                    Text("박스나 깊은 칸에 넣어둔 옷이면 켜두세요. 추천될 때 전날 꺼내라고 알려드려요.",
-                        fontSize = 12.sp, color = MaterialTheme.colorScheme.outline)
-                }
-                Switch(stored, { stored = it })
-            }
-
-            Button(
-                onClick = {
-                    val item = initial.copy(
-                        location = location.trim(), stored = stored,
-                        category = category, name = name.trim(), color = color.trim(),
-                        warmth = warmth.roundToInt(), formality = formality.roundToInt(),
-                        waterproof = waterproof, photoPath = photo,
-                    )
-                    scope.launch {
-                        withContext(Dispatchers.IO) { repo.upsert(item) }
-                        onDone()
-                    }
-                },
-                enabled = !tagging && (photo != null || name.isNotBlank()),
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("저장") }
 
             if (!isNew) {
                 TextButton(onClick = {
@@ -261,9 +267,30 @@ fun EditItemScreen(initial: ClothingItem, repo: Repository, isNew: Boolean, onDo
                         withContext(Dispatchers.IO) { repo.delete(initial) }
                         onDone()
                     }
-                }, modifier = Modifier.fillMaxWidth()) {
-                    Text("삭제", color = MaterialTheme.colorScheme.error)
-                }
+                }) { Text("이 옷 삭제", color = MaterialTheme.colorScheme.error) }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+    }
+}
+
+@Composable
+private fun Question(text: String) {
+    Text(text, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+}
+
+/** 크게 누르기 쉬운 선택 버튼 줄 */
+@Composable
+fun <T> BigChoices(options: List<Pair<String, T>>, selected: T, onSelect: (T) -> Unit) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        options.forEach { (label, value) ->
+            val on = value == selected
+            if (on) {
+                Button(onClick = { onSelect(value) }, modifier = Modifier.weight(1f).height(52.dp),
+                    contentPadding = PaddingValues(2.dp)) { Text(label, fontSize = 14.sp, maxLines = 1) }
+            } else {
+                OutlinedButton(onClick = { onSelect(value) }, modifier = Modifier.weight(1f).height(52.dp),
+                    contentPadding = PaddingValues(2.dp)) { Text(label, fontSize = 14.sp, maxLines = 1) }
             }
         }
     }

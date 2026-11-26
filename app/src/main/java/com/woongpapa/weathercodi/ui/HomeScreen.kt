@@ -2,8 +2,12 @@
 
 package com.woongpapa.weathercodi.ui
 
+import android.Manifest
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -19,7 +23,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.app.NotificationManagerCompat
 import coil.compose.AsyncImage
+import com.woongpapa.weathercodi.data.Category
 import com.woongpapa.weathercodi.data.ClothingItem
 import com.woongpapa.weathercodi.data.Recommendation
 import com.woongpapa.weathercodi.data.Repository
@@ -40,7 +46,7 @@ fun HomeScreen(
     rec: Recommendation?,
     onRecChange: (Recommendation) -> Unit,
     onRefresh: () -> Unit,
-    onGoWardrobe: () -> Unit,
+    onAddItem: () -> Unit,
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -48,19 +54,32 @@ fun HomeScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var wornDone by remember(rec) { mutableStateOf(false) }
 
+    // ---- 시작하기 체크리스트 상태 ----
+    var notifOn by remember { mutableStateOf(NotificationManagerCompat.from(ctx).areNotificationsEnabled()) }
+    var locSet by remember { mutableStateOf(repo.locationName != "서울(기본)") }
+    val hasBasics = Category.entries.filter { it != Category.OUTER }
+        .all { c -> wardrobe.any { it.category == c } }
+    val setupDone = notifOn && locSet && hasBasics
+
+    val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        notifOn = NotificationManagerCompat.from(ctx).areNotificationsEnabled()
+    }
+    val locLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) setCurrentLocation(ctx, repo, scope) { ok, _ -> if (ok) locSet = true }
+    }
+
     fun load() {
         loading = true; error = null
         scope.launch {
             try {
                 onRecChange(Planner.planTomorrow(ctx))
             } catch (e: Exception) {
-                error = "날씨를 가져오지 못했어요: ${e.message}"
+                error = "날씨를 못 가져왔어요. 인터넷 연결을 확인해 주세요."
             }
             loading = false
         }
     }
 
-    // 처음 열었는데 추천이 없으면 바로 받아오기
     LaunchedEffect(Unit) { if (rec == null && wardrobe.isNotEmpty()) load() }
 
     val byId = wardrobe.associateBy { it.id }
@@ -69,141 +88,132 @@ fun HomeScreen(
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        if (wardrobe.isEmpty()) {
+        if (!setupDone) {
             Card {
-                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("옷장이 비어 있어요", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                    Text("가지고 있는 상의·하의·아우터·신발을 사진으로 등록하면 매일 저녁 내일 날씨에 맞는 코디를 알려드려요.")
-                    Button(onClick = onGoWardrobe) { Text("옷 등록하러 가기") }
+                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("시작하기 — 3가지만 하면 돼요", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Step("1", "🔔 전날 밤 알림 받기", notifOn, "켜기") {
+                        if (Build.VERSION.SDK_INT >= 33) notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        else notifOn = true
+                    }
+                    Step("2", "📍 내 동네 날씨로 설정", locSet, "설정") {
+                        locLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+                    }
+                    Step("3", "👕 상의·하의·신발 1개씩 찍기", hasBasics, "찍기") { onAddItem() }
                 }
             }
         }
 
-        rec?.let { r -> ForecastCard(r) }
-
-        if (loading) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
-                Spacer(Modifier.width(10.dp)); Text("내일 날씨 보고 코디 고르는 중…")
+        if (wardrobe.isNotEmpty()) {
+            if (loading) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(10.dp)); Text("내일 코디 고르는 중…")
+                }
             }
+            error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         }
-        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
 
         rec?.let { r ->
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("추천 코디", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                if (r.byAi) {
-                    Spacer(Modifier.width(8.dp))
-                    AssistChip(onClick = {}, label = { Text("AI 스타일리스트") })
-                }
+            val f = r.forecast
+            // 날씨 한 줄
+            Text(
+                "${weatherEmoji(r)} 내일 ${f.minTemp.roundToInt()}~${f.maxTemp.roundToInt()}℃ ${f.summary}" +
+                    if (f.rainChance >= 60) " · 비 ${f.rainChance}%" else "",
+                fontSize = 22.sp, fontWeight = FontWeight.Bold,
+            )
+
+            // 코디 2x2
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Slot("상의", r.topId?.let { byId[it] }, Modifier.weight(1f))
+                Slot("하의", r.bottomId?.let { byId[it] }, Modifier.weight(1f))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Slot("아우터", r.outerId?.let { byId[it] }, Modifier.weight(1f))
-                Slot("상의", r.topId?.let { byId[it] }, Modifier.weight(1f))
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Slot("하의", r.bottomId?.let { byId[it] }, Modifier.weight(1f))
                 Slot("신발", r.shoesId?.let { byId[it] }, Modifier.weight(1f))
             }
 
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(r.reason)
-                    r.tips.forEach { Text(it, fontSize = 14.sp) }
+            // 팁 (최대 2개)
+            r.tips.take(2).forEach { Text(it, fontSize = 15.sp) }
+
+            // 부족한 옷 → 쇼핑
+            r.missing.firstOrNull()?.let { m ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("🛍️ ${m.substringBefore("(")}이(가) 없어요", Modifier.weight(1f), fontSize = 14.sp)
+                    TextButton(onClick = {
+                        val q = URLEncoder.encode(m.substringBefore("("), "UTF-8")
+                        ctx.startActivity(Intent(Intent.ACTION_VIEW,
+                            Uri.parse("https://search.shopping.naver.com/search/all?query=$q")))
+                    }) { Text("쇼핑 보기") }
                 }
             }
 
-            if (r.missing.isNotEmpty()) {
-                Card {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("🛍️ 이런 옷이 있으면 더 좋아요", fontWeight = FontWeight.Bold)
-                        r.missing.forEach { m ->
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(m, Modifier.weight(1f))
-                                TextButton(onClick = {
-                                    val q = URLEncoder.encode(m.substringBefore("("), "UTF-8")
-                                    ctx.startActivity(Intent(Intent.ACTION_VIEW,
-                                        Uri.parse("https://search.shopping.naver.com/search/all?query=$q")))
-                                }) { Text("쇼핑 보기") }
-                            }
-                        }
+            Button(
+                onClick = {
+                    scope.launch {
+                        withContext(Dispatchers.IO) { repo.markWorn(r.ids(), r.forecast.date) }
+                        wornDone = true
+                        onRefresh()
                     }
-                }
+                },
+                enabled = !wornDone && r.ids().isNotEmpty(),
+                modifier = Modifier.fillMaxWidth().height(54.dp),
+            ) { Text(if (wornDone) "좋아요! 내일 이렇게 입어요 ✓" else "👍 이걸로 입을게요", fontSize = 16.sp) }
+            TextButton(onClick = { load() }, enabled = !loading, modifier = Modifier.fillMaxWidth()) {
+                Text("🔄 다른 코디 보기")
             }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { load() }, enabled = !loading, modifier = Modifier.weight(1f)) {
-                    Text("다른 코디")
-                }
-                Button(
-                    onClick = {
-                        scope.launch {
-                            withContext(Dispatchers.IO) { repo.markWorn(r.ids(), r.forecast.date) }
-                            wornDone = true
-                            onRefresh()
-                        }
-                    },
-                    enabled = !wornDone && r.ids().isNotEmpty(),
-                    modifier = Modifier.weight(1f),
-                ) { Text(if (wornDone) "저장했어요 ✓" else "이걸로 입을게요") }
-            }
-            Text("‘이걸로 입을게요’를 누르면 같은 옷이 며칠 연속 추천되지 않아요.",
-                fontSize = 12.sp, color = MaterialTheme.colorScheme.outline)
         }
 
         if (rec == null && wardrobe.isNotEmpty() && !loading) {
-            Button(onClick = { load() }) { Text("내일 코디 받기") }
+            Button(onClick = { load() }, modifier = Modifier.fillMaxWidth().height(54.dp)) {
+                Text("내일 코디 보기", fontSize = 16.sp)
+            }
         }
     }
 }
 
 @Composable
-private fun ForecastCard(r: Recommendation) {
+private fun Step(num: String, text: String, done: Boolean, action: String, onClick: () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(if (done) "✅" else "$num.", fontSize = 18.sp, modifier = Modifier.width(32.dp))
+        Text(text, Modifier.weight(1f), fontSize = 15.sp,
+            color = if (done) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.onSurface)
+        if (!done) Button(onClick = onClick) { Text(action) }
+    }
+}
+
+private fun weatherEmoji(r: Recommendation): String {
     val f = r.forecast
-    val emoji = when {
+    return when {
         f.snow -> "❄️"
         f.rain -> "🌧️"
         f.summary == "흐림" -> "☁️"
         f.summary == "구름많음" -> "⛅"
         else -> "☀️"
     }
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
-        Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(emoji, fontSize = 44.sp)
-            Spacer(Modifier.width(14.dp))
-            Column {
-                Text("내일 (${f.date.takeLast(5).replace('-', '/')}) · ${f.summary}", fontWeight = FontWeight.Bold)
-                Text("${f.minTemp.roundToInt()}℃ / ${f.maxTemp.roundToInt()}℃", fontSize = 26.sp, fontWeight = FontWeight.Bold)
-                Text("강수 ${f.rainChance}% · 바람 ${f.maxWind.roundToInt()}m/s · ${f.source}", fontSize = 13.sp)
-            }
-        }
-    }
 }
 
 @Composable
 private fun Slot(label: String, item: ClothingItem?, modifier: Modifier) {
-    Card(modifier) {
-        Column(Modifier.padding(8.dp)) {
-            Box(
-                Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(10.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                contentAlignment = Alignment.Center,
-            ) {
-                val path = item?.photoPath
-                if (path != null) {
-                    AsyncImage(model = File(path), contentDescription = item?.name,
-                        contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                } else {
-                    Text(if (item == null) "—" else "👕", fontSize = 28.sp)
-                }
+    Column(modifier) {
+        Box(
+            Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(14.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center,
+        ) {
+            val path = item?.photoPath
+            if (path != null) {
+                AsyncImage(model = File(path), contentDescription = item?.name,
+                    contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            } else {
+                Text(if (item == null) "—" else "👕", fontSize = 28.sp)
             }
-            Spacer(Modifier.height(6.dp))
-            Text(label, fontSize = 12.sp, color = MaterialTheme.colorScheme.outline)
-            Text(item?.displayName() ?: "필요 없음/없음", fontSize = 14.sp, maxLines = 1)
-            if (item != null && item.location.isNotBlank()) {
-                Text((if (item.stored) "📦 " else "📍 ") + item.location, fontSize = 12.sp, maxLines = 1,
-                    color = if (item.stored) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.outline)
-            }
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(item?.displayName() ?: "$label 없음", fontSize = 14.sp, maxLines = 1)
+        if (item != null && item.location.isNotBlank()) {
+            Text((if (item.stored) "📦 " else "📍 ") + item.location, fontSize = 12.sp, maxLines = 1,
+                color = if (item.stored) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.outline)
         }
     }
 }
