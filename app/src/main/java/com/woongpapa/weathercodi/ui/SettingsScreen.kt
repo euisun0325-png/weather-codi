@@ -121,6 +121,17 @@ fun SettingsScreen(modifier: Modifier, repo: Repository) {
             }
         }
 
+        Section("친구에게 앱 알려주기") {
+            Text("설치 링크를 카카오톡으로 보내요", style = MaterialTheme.typography.bodyMedium, color = Codi.Sub)
+            Button(
+                onClick = { ShareHelper.shareApp(ctx) },
+                modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = androidx.compose.ui.graphics.Color(0xFFFEE500),
+                    contentColor = androidx.compose.ui.graphics.Color(0xFF191919)),
+                elevation = null,
+            ) { Text("💬 카톡으로 앱 공유하기", fontWeight = FontWeight.SemiBold) }
+        }
+
         msg?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
 
         TextButton(onClick = { showAdvanced = !showAdvanced }) {
@@ -156,7 +167,7 @@ fun SettingsScreen(modifier: Modifier, repo: Repository) {
                 }) { Text("지금 알림 미리 받아보기") }
             }
         }
-        Text("날씨코디 v0.4 · made by woongpapa", fontSize = 12.sp, color = MaterialTheme.colorScheme.outline)
+        Text("날씨코디 v0.5 · made by woongpapa", fontSize = 12.sp, color = MaterialTheme.colorScheme.outline)
     }
 }
 

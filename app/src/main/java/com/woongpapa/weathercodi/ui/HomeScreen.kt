@@ -168,8 +168,18 @@ fun HomeScreen(
                     }
                 },
             )
-            TextButton(onClick = { load() }, enabled = !loading, modifier = Modifier.fillMaxWidth()) {
-                Text(if (loading) "고르는 중…" else "다른 코디 보기", color = Codi.Sub)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedButton(
+                    onClick = { load() }, enabled = !loading,
+                    modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(16.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Codi.Line),
+                ) { Text(if (loading) "고르는 중…" else "🔄 다른 코디", color = Codi.Ink) }
+                Button(
+                    onClick = { ShareHelper.shareOutfit(ctx, r, byId) },
+                    modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFEE500), contentColor = Color(0xFF191919)),
+                    elevation = null,
+                ) { Text("💬 카톡으로 보내기", fontWeight = FontWeight.SemiBold) }
             }
         } else if (wardrobe.isNotEmpty()) {
             if (loading) {
