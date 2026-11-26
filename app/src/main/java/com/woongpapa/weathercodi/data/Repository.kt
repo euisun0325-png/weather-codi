@@ -15,7 +15,7 @@ import java.util.UUID
 /**
  * 모든 데이터는 휴대폰 안(앱 전용 폴더)에만 저장합니다.
  * - 옷장: files/wardrobe.json
- * - 사진: files/photos/*.jpg
+ * - 사진: files/photos/ 폴더 (jpg)
  * - 설정: SharedPreferences
  */
 class Repository(context: Context) {
